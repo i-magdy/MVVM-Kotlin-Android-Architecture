@@ -4,12 +4,12 @@ import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import com.task.data.DataRepositorySource
 import com.task.data.Resource
-import com.task.data.dto.recipes.RecipesItem
+import com.task.db.AppDao
+import com.task.db.Recipe
 import com.task.ui.base.BaseViewModel
-import com.task.utils.wrapEspressoIdlingResource
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.reactivex.rxjava3.schedulers.Schedulers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -18,66 +18,39 @@ import javax.inject.Inject
  * Created by AhmedEltaher
  */
 @HiltViewModel
-open class DetailsViewModel @Inject constructor(private val dataRepository: DataRepositorySource) : BaseViewModel() {
+open class DetailsViewModel @Inject constructor(
+    private val db: AppDao
+) : BaseViewModel() {
 
+    private var _recipeId: String = ""
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    val recipePrivate = MutableLiveData<RecipesItem>()
-    val recipeData: LiveData<RecipesItem> get() = recipePrivate
+    val recipePrivate = MutableLiveData<Recipe>()
+    val recipeData: LiveData<Recipe> get() = recipePrivate
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     val isFavouritePrivate = MutableLiveData<Resource<Boolean>>()
     val isFavourite: LiveData<Resource<Boolean>> get() = isFavouritePrivate
 
-    fun initIntentData(recipe: RecipesItem) {
-        recipePrivate.value = recipe
-    }
-
-    open fun addToFavourites() {
+    fun initIntentData(recipeId: String) {
+        if (recipeId.isEmpty()) return
+        _recipeId = recipeId
         viewModelScope.launch {
-            isFavouritePrivate.value = Resource.Loading()
-            wrapEspressoIdlingResource {
-                recipePrivate.value?.id?.let {
-                    dataRepository.addToFavourite(it).collect { isAdded ->
-                        isFavouritePrivate.value = isAdded
-                    }
-                }
+            db.getRecipeById(recipeId = _recipeId).collect {
+                recipePrivate.value = it
             }
         }
     }
 
-    fun removeFromFavourites() {
-        viewModelScope.launch {
-            isFavouritePrivate.value = Resource.Loading()
-            wrapEspressoIdlingResource {
-                recipePrivate.value?.id?.let {
-                    dataRepository.removeFromFavourite(it).collect { isRemoved ->
-                        when (isRemoved) {
-                            is Resource.Success -> {
-                                isRemoved.data?.let { isFavouritePrivate.value = Resource.Success(!isRemoved.data) }
-                            }
-                            is Resource.DataError -> {
-                                isFavouritePrivate.value = isRemoved
-                            }
-                            is Resource.Loading -> {
-                                isFavouritePrivate.value = isRemoved
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
-    fun isFavourites() {
+    fun onFavouriteClicked() {
         viewModelScope.launch {
-            isFavouritePrivate.value = Resource.Loading()
-            wrapEspressoIdlingResource {
-                recipePrivate.value?.id?.let {
-                    dataRepository.isFavourite(it).collect { isFavourites ->
-                        isFavouritePrivate.value = isFavourites
-                    }
-                }
+            val  completable = if (recipePrivate.value?.isFavorite!!){
+                db.removeRecipeFromFavourites(_recipeId)
+            }else{
+                db.addRecipeToFavourite(_recipeId)
             }
+            completable.subscribeOn(Schedulers.computation())
+                .subscribe()
         }
     }
 }
