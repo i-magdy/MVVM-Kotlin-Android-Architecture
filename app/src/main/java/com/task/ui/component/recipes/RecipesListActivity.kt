@@ -21,6 +21,7 @@ import com.task.data.dto.recipes.Recipes
 import com.task.data.dto.recipes.RecipesItem
 import com.task.data.error.SEARCH_ERROR
 import com.task.databinding.HomeActivityBinding
+import com.task.db.Recipe
 import com.task.ui.base.BaseActivity
 import com.task.ui.component.details.DetailsActivity
 import com.task.ui.component.recipes.adapter.RecipesAdapter
@@ -36,6 +37,7 @@ class RecipesListActivity : BaseActivity() {
 
     private val recipesListViewModel: RecipesListViewModel by viewModels()
     private lateinit var recipesAdapter: RecipesAdapter
+    private lateinit var searchView: SearchView
 
     override fun initViewBinding() {
         binding = HomeActivityBinding.inflate(layoutInflater)
@@ -55,22 +57,27 @@ class RecipesListActivity : BaseActivity() {
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.main_actions, menu)
         // Associate searchable configuration with the SearchView
-        val searchView = menu?.findItem(R.id.action_search)?.actionView as SearchView
+        searchView = menu?.findItem(R.id.action_search)?.actionView as SearchView
         searchView.queryHint = getString(R.string.search_by_name)
         val searchManager = getSystemService(Context.SEARCH_SERVICE) as SearchManager
         searchView.apply {
             setSearchableInfo(searchManager.getSearchableInfo(componentName))
         }
+
         searchView.setOnQueryTextListener(object : OnQueryTextListener {
             override fun onQueryTextSubmit(query: String): Boolean {
-                handleSearch(query)
                 return false
             }
 
             override fun onQueryTextChange(newText: String): Boolean {
+                handleSearch(newText)
                 return false
             }
         })
+        searchView.setOnCloseListener {
+            recipesListViewModel.onSearchClosed()
+            return@setOnCloseListener false
+        }
         return true
     }
 
@@ -89,9 +96,9 @@ class RecipesListActivity : BaseActivity() {
     }
 
 
-    private fun bindListData(recipes: Recipes) {
-        if (!(recipes.recipesList.isNullOrEmpty())) {
-            recipesAdapter = RecipesAdapter(recipesListViewModel, recipes.recipesList)
+    private fun bindListData(recipes: List<Recipe>) {
+        if (!(recipes.isNullOrEmpty())) {
+            recipesAdapter = RecipesAdapter(recipesListViewModel, recipes)
             binding.rvRecipesList.adapter = recipesAdapter
             showDataView(true)
         } else {
@@ -99,7 +106,7 @@ class RecipesListActivity : BaseActivity() {
         }
     }
 
-    private fun navigateToDetailsScreen(navigateEvent: SingleEvent<RecipesItem>) {
+    private fun navigateToDetailsScreen(navigateEvent: SingleEvent<String>) {
         navigateEvent.getContentIfNotHandled()?.let {
             val nextScreenIntent = Intent(this, DetailsActivity::class.java).apply {
                 putExtra(RECIPE_ITEM_KEY, it)
@@ -133,8 +140,8 @@ class RecipesListActivity : BaseActivity() {
     }
 
 
-    private fun showSearchResult(recipesItem: RecipesItem) {
-        recipesListViewModel.openRecipeDetails(recipesItem)
+    private fun showSearchResult(recipesItem: Recipe) {
+        recipesListViewModel.openRecipeDetails(recipesItem.id)
         binding.pbLoading.toGone()
     }
 
@@ -143,7 +150,7 @@ class RecipesListActivity : BaseActivity() {
         binding.pbLoading.toGone()
     }
 
-    private fun handleRecipesList(status: Resource<Recipes>) {
+    private fun handleRecipesList(status: Resource<List<Recipe>>) {
         when (status) {
             is Resource.Loading -> showLoadingView()
             is Resource.Success -> status.data?.let { bindListData(recipes = it) }
@@ -162,5 +169,17 @@ class RecipesListActivity : BaseActivity() {
         observeSnackBarMessages(recipesListViewModel.showSnackBar)
         observeToast(recipesListViewModel.showToast)
 
+    }
+
+    override fun onBackPressed() {
+        if (searchView != null){
+            if (!searchView.isIconified){
+                searchView.isIconified = true
+            }else{
+                super.onBackPressed()
+            }
+        }else{
+            super.onBackPressed()
+        }
     }
 }

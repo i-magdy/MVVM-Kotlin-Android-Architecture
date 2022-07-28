@@ -8,6 +8,7 @@ import com.task.data.DataRepositorySource
 import com.task.data.Resource
 import com.task.data.dto.recipes.Recipes
 import com.task.data.dto.recipes.RecipesItem
+import com.task.db.Recipe
 import com.task.ui.base.BaseViewModel
 import com.task.utils.SingleEvent
 import com.task.utils.wrapEspressoIdlingResource
@@ -21,21 +22,22 @@ import javax.inject.Inject
  * Created by AhmedEltaher
  */
 @HiltViewModel
-class RecipesListViewModel @Inject
-constructor(private val dataRepositoryRepository: DataRepositorySource) : BaseViewModel() {
+class RecipesListViewModel @Inject constructor(
+    private val repo: RecipesRepo
+) : BaseViewModel() {
 
     /**
      * Data --> LiveData, Exposed as LiveData, Locally in viewModel as MutableLiveData
      */
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    val recipesLiveDataPrivate = MutableLiveData<Resource<Recipes>>()
-    val recipesLiveData: LiveData<Resource<Recipes>> get() = recipesLiveDataPrivate
+    val recipesLiveDataPrivate = MutableLiveData<Resource<List<Recipe>>>()
+    val recipesLiveData: LiveData<Resource<List<Recipe>>> get() = recipesLiveDataPrivate
 
 
     //TODO check to make them as one Resource
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    val recipeSearchFoundPrivate: MutableLiveData<RecipesItem> = MutableLiveData()
-    val recipeSearchFound: LiveData<RecipesItem> get() = recipeSearchFoundPrivate
+    val recipeSearchFoundPrivate: MutableLiveData<Recipe> = MutableLiveData()
+    val recipeSearchFound: LiveData<Recipe> get() = recipeSearchFoundPrivate
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     val noSearchFoundPrivate: MutableLiveData<Unit> = MutableLiveData()
@@ -45,9 +47,16 @@ constructor(private val dataRepositoryRepository: DataRepositorySource) : BaseVi
      * UI actions as event, user action is single one time event, Shouldn't be multiple time consumption
      */
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    private val openRecipeDetailsPrivate = MutableLiveData<SingleEvent<RecipesItem>>()
-    val openRecipeDetails: LiveData<SingleEvent<RecipesItem>> get() = openRecipeDetailsPrivate
+    private val openRecipeDetailsPrivate = MutableLiveData<SingleEvent<String>>()
+    val openRecipeDetails: LiveData<SingleEvent<String>> get() = openRecipeDetailsPrivate
 
+    init {
+        viewModelScope.launch {
+            repo.recipesStateFlow.collect {
+                recipesLiveDataPrivate.value = it
+            }
+        }
+    }
     /**
      * Error handling as UI
      */
@@ -62,17 +71,12 @@ constructor(private val dataRepositoryRepository: DataRepositorySource) : BaseVi
 
     fun getRecipes() {
         viewModelScope.launch {
-            recipesLiveDataPrivate.value = Resource.Loading()
-            wrapEspressoIdlingResource {
-                dataRepositoryRepository.requestRecipes().collect {
-                    recipesLiveDataPrivate.value = it
-                }
-            }
+            repo.getRecipes()
         }
     }
 
-    fun openRecipeDetails(recipe: RecipesItem) {
-        openRecipeDetailsPrivate.value = SingleEvent(recipe)
+    fun openRecipeDetails(recipeId: String) {
+        openRecipeDetailsPrivate.value = SingleEvent(recipeId)
     }
 
     fun showToastMessage(errorCode: Int) {
@@ -81,16 +85,14 @@ constructor(private val dataRepositoryRepository: DataRepositorySource) : BaseVi
     }
 
     fun onSearchClick(recipeName: String) {
-        recipesLiveDataPrivate.value?.data?.recipesList?.let {
-            if (it.isNotEmpty()) {
-                for (recipe in it) {
-                    if (recipe.name.toLowerCase(ROOT).contains(recipeName.toLowerCase(ROOT))) {
-                        recipeSearchFoundPrivate.value = recipe
-                        return
-                    }
-                }
-            }
-        }
-        return noSearchFoundPrivate.postValue(Unit)
+        repo.onSearchInRecipes(text = recipeName)
+    }
+
+    fun onSearchClosed() = repo.sync()
+
+
+    override fun onCleared() {
+        super.onCleared()
+        repo.cancelJob()
     }
 }
